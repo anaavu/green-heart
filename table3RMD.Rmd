@@ -1,0 +1,573 @@
+---
+title: "Initial Results for Table 3 and 5"
+output:
+  html_document:
+    df_print: paged
+Author: Anagha Uppal
+Date: Feb 2021
+Purpose: Tables 3 & 5 for SES 2nd Paper
+Inputs: Participant Data and SES Data
+Outputs: Results
+To do: find out why inc.desc is so bad (it's because it's a multinomial parading as a binomial), try replacing inc with edu in some places, Automate greenness vars, Continue
+  table 4 and 5
+---
+
+#### These are sample results for Table 3 - personal (parcel NDVI) and local (participant 100m ndvi) level greenness. Table 3 personal level is defined by dependence of greenness metric, while local level is defined by income or education (SES) as dependent. Stratification samples for table 5 are by gender and race. In progress is a automated function for discovery to try many greenness metrics one-by-one.
+#### One reason for the underwhelming results for local level could be that income model uses family binomial, whereas this is a multinomial categorical variable. 
+#### Another step is to include visualizations of observed vs fitted.
+
+Import libraries and grab data
+
+```{r echo=FALSE,message=FALSE}
+library(leaps)
+library(nnet) #this contains func multinom through which we can model a categorical (non-binary) y (dependent) variable
+library(tidyverse)
+library(MASS) #for stepAIC
+library(GGally)
+library(bootStepAIC) #for bootstrapping
+library(plotly) #for bootstrap viz
+library(pscl) #for pR2
+library(styler) #style Rmd
+library(corrP) #associations between all independent vars
+library(splines) #for additive model
+library(jtools) #for viz predictions
+library(earth) #for masss lm
+library(dplyr)
+
+# styler::style_file()
+
+# Grab the data
+participants <- read.csv("C:/Users/a0uppa01/Documents/GIS/GHData_AU_20201221.csv")
+p1 <- read.csv("C:/Users/a0uppa01/Documents/GIS/GHData_RY_041720.csv")
+greenness <- read.csv("C:/Users/a0uppa01/Documents/GIS/participants_allgreenness_20210309.csv")
+addparcelinfo <- read.csv("C:/Users/a0uppa01/Documents/GIS/GHParticipants_newrentown.csv")
+```
+
+Data Preparation
+
+```{r echo=FALSE}
+
+participants <- participants %>%
+  mutate(gend.desc = as.factor(if_else(gend == 1, 'Female', 'Male'))) %>%
+  mutate(race.desc = as.factor(if_else(race == 3, 'Black', 
+                                       if_else(race == 5, 'White', 'Other')))) %>% 
+  mutate(ethn.desc = as.factor(if_else(ethn == 1, 'Hispanic/Latino', 'Non Hispanic/Latino'))) %>%
+  #mutate(shemp.desc = as.factor(if_else(shemp == 1, 'Yes', 'No'))) %>%
+  mutate(inc.desc = as.factor(if_else(inc == 1, '< $20,000', 
+                                      if_else(inc == 2, '20,000-$45,000', 
+                                              if_else(inc == 3, '$45,000-$65,000',
+                                                      if_else(inc==4 | inc==5 | inc==6, '>$65,000', NULL)))))) %>%
+  mutate(edu.desc = as.factor(if_else(edu>=1 & edu<=3, '<=High School Diploma',
+                                      if_else(edu==4 | edu==5, 'Some college',
+                                              if_else(edu>=6 & edu<=8, '>=4-year degree', NULL))))) %>%
+  mutate(medu.desc = as.factor(if_else(medu>=1 & medu<=3, '<=High School Diploma',
+                                       if_else(medu==4 | medu==5, 'Some college',
+                                               if_else(medu>=6 & medu<=8, '>=4-year degree', NULL))))) %>%
+    mutate(rentown.desc = as.factor(if_else(rentown == 1, 'Rent', 'Own'))) %>%
+  mutate(NEAR_DIST_MajorRoads = NEAR_DIST_MajorRoads/3281)
+
+addparcelinfo[addparcelinfo==""]<-NA
+
+
+participants <- left_join(participants, addparcelinfo, by=c("stid"="StudyID"))
+participants <- participants %>% dplyr::select(inc.desc, stid, age, gend.desc,
+                                               race.desc, ethn.desc, edu.desc,
+                                               NEAR_DIST_MajorRoads,PopDen,
+                                               CUR_TOTAL, PROP_CLASS, rentown_parcel,hznum,medu.desc)
+# participants <- participants %>% dplyr::select(inc.desc, stid, age, gend.desc,
+#                                                race.desc, ethn.desc, edu.desc,
+#                                                NEAR_DIST_MajorRoads,rentown.desc)
+# participants <- participants %>% dplyr::select(inc.desc, stid, age, gend.desc,
+#                                                race.desc, ethn.desc, edu.desc,
+#                                                NEAR_DIST_MajorRoads)
+
+participant_greenness  <- left_join(participants, greenness, by=c("stid"="StudyID"))
+
+
+# taking all variables from SES table 
+# checking the NA count for each
+# and removing rentown.desc and bc.desc (type of building) 
+# these two variables have n=300 missing values
+drop <- c("Nobuilding_NDVI_L19_Sum","lessvisible_NDVI_L19_MEAN", 
+          "morevisible_NDVI_L19_MEAN", "Nobuilding_NDVI_L19_Mean", "Parcel_NDVI_L19_Sum",
+          "Parcel_NDVI_L19_Mean","lessvisible_LAI_MEAN", "morevisible_LAI_MEAN",
+          "morevisible_leafarea_MEAN", "lessvisible_leafarea_MEAN", "lessvisible_ndvi_MEAN",
+          "morevisible_biomass_MEAN", "lessvisible_biomass_MEAN", 
+          "SubjectID",
+          "Field", "Event_Name", "Study_ID", "stid",
+          "USER_Home_Address", "OBJECTID_1", "X", "Y", "ObjectID",
+          "Subject_ID", "Home_Address", 
+          "ImperviousyPercFocal500m060320", "ImperviousyPercFocal300m060320",
+          "ImperviousyPercFocal50m060320",
+          "MEAN_12", "Event_Name", "OBJECTID", "lessvisible_canopy_MEAN")
+pg_for_lm = participant_greenness[,!(names(participant_greenness) %in% drop)]
+pg_for_lm = pg_for_lm %>% dplyr::select(-starts_with("HEAL"),
+                                 -starts_with("Heal"),
+                                 -starts_with("FocalStatistics"),
+                                 -starts_with("Andrea"),
+                                 -starts_with("ghKDE"),
+                                 -starts_with("ParcelID"),
+                                 -starts_with("FIPS"),
+                                 -starts_with("NEAREST")) 
+# sapply(pg_for_lm, function(x) sum(is.na(x)))
+
+
+                                      
+pg_for_lm <- na.omit(pg_for_lm) #641 observations
+
+pg_for_lm_owners <- filter(pg_for_lm, rentown_parcel == "Own")
+
+```
+
+```{r}
+# pg_for_lm <- read.csv("C:/Users/a0uppa01/Documents/GIS/pg_for_lm_AU_20201221.csv", stringsAsFactors = T)
+# pg_for_lm$inc.desc <- as.factor(pg_for_lm)
+```
+
+
+#### SUBSET Data Preparation  
+A personal and local set of greenness data  
+Greenness data consists of NDVI, Landsat NDVI, Leaf Area, Leaf Area Index, Biomass, and Tree Canopy at the following scales: Participant home radius of 20m, 50m, 100m, 150m, 200m, 300m, and 500m; Parcel-area, Parcel without the building, Backyard (named Less Visible), Frontyard (named More Visible); and Block Group  
+Personal-level greenness refers to 20m around the Participant home and all parcel characteristics.
+Area-level greenness refers to 50-500m greenness and Block group greenness.
+Personal and area greenness will be assessed separately because participants may have more control over personal greenness than area greenness.   
+
+```{r}
+pg_for_lm_local = pg_for_lm %>% select(-starts_with("Participant_20m"), 
+                                           -starts_with("Parcel_"),
+                                           -starts_with("Nobuilding_"),
+                                           -starts_with("lessvisible_"),
+                                           -starts_with("morevisible_"))
+
+pg_for_lm_personal = pg_for_lm %>% select(-contains("00m_"), 
+                                              -contains("50m_"),
+                                              -starts_with("Blockgroup_"))
+
+```
+
+##### Trying stepwise regression on full model, followed by bootstrapping:
+
+```{r echo=FALSE}
+
+
+```
+
+##### Bootstrapping viz (skipping; problems in code)
+
+```{r echo=FALSE, eval=FALSE}
+# Base plot for number of times a variable was picked by stepAIC
+plot_ly(coef.pick, x = rownames(coef.pick), y = pick,
+        type = "bar", opacity = 0.75, name = "Times picked (%)",
+        hoverinfo = "text", text = pick.text,
+        marker = list(color = "#00994d", line = list(width = 2))) %>% 
+  
+  # Layer for number of times a variable was statistically significant at 5%
+  add_trace(data = coef.stat.long, x = variable, y = sig, 
+            type = "scatter", mode = "markers + line", name = "Stat. Sig (%)",
+            line = list(color = "#ffdb4d", width = 15),
+            hoverinfo = "text", text = text) %>% 
+  
+  # Layer for number of times a variable's coefficient was positive
+  add_trace(data = coef.sign, x = rownames(coef.pick), y = rep(-5, nCovariates), 
+            type = "scatter", mode = "markers", name = "Coef Sign(% pos)",
+            marker = list(symbol = "triangle-up", size = pos/scale, color = "#4da6ff",
+                          line = list(color = "black", width = 2)),
+            hoverinfo = "text", text = sign.text.up) %>% 
+  
+  # Layer for number of times a variable's coefficient was negative
+  add_trace(data = coef.sign, x = rownames(coef.pick), y = rep(-10, nCovariates), 
+            type = "scatter", mode = "markers", name = "Coef Sign(% neg)",
+            marker = list(symbol = "triangle-down", size = neg/scale, color = "#ff704d",
+                          line = list(color = "black", width = 2)),
+            hoverinfo = "text", text = sign.text.down) %>% 
+  
+  # Layout, annotations, axis options etc
+  layout(xaxis = list(title = "<b>Covariates</b>"),
+         yaxis = list(title = "<b>Percentage(%)</b>",
+                      tickmode = "array", 
+                      tickvals = round(seq(0, 100, length.out = 10), 0),
+                      domain = c(0.2, 1)),
+         plot_bgcolor = "#e1efc3",
+         paper_bgcolor = "#e1efc3",
+         
+         annotations = list(
+           list(x = 0.1, y = 1, 
+                xref = "paper", yref = "paper", 
+                xanchor = "left", yanchor = "top",
+                ax = 0, ay = 0,
+                text = "Visualizing <em>boot.stepAIC()</em>",
+                font = list(family = "serif", size = 30)),
+           
+           list(x = 0.3, y = 0.1, 
+                xref = "paper", yref = "paper", 
+                xanchor = "left", yanchor = "top",
+                ax = 0, ay = 0,
+                text = paste("<em>Original Model:</em>", origModel),
+                font = list(family = "PT Sans Narrow", size = 15)),
+           
+           list(x = 0.21, y = 0.05, 
+                xref = "paper", yref = "paper", 
+                xanchor = "left", yanchor = "top", align = "left",
+                ax = 0, ay = 0,
+                text = paste("<em>Stepwise Model:</em>", stepModel),
+                font = list(family = "PT Sans Narrow", size = 15)),
+           
+           list(x = 0.8, y = 0.90, 
+                xref = "paper", yref = "paper", 
+                xanchor = "left", yanchor = "top", align = "left",
+                ax = 0, ay = 0,
+                text = paste0("<em>No. of Covariates:</em>", nCovariates, "<br>",
+                              "<em>No. of bootstrap samples:</em>", nBoot, "<br>"),
+                font = list(family = "PT Sans Narrow", size = 15))
+         ))
+```
+
+  
+    
+
+Breaking up the analysis now, we separate the analysis of personal-level 
+greenness with local-level greenness.  
+Personal greenness is defined as greenness at 20m radius or parcel greenness.   
+We run linear models both to estimate personal greenness from SES variables as well as to estimate income or education from personal greenness and other SES variables.  
+
+First, let's check correlations between some SES variables
+```{r echo=FALSE}
+pg_for_corr <- pg_for_lm %>% select(age, race.desc, ethn.desc, gend.desc,
+                                    inc.desc, edu.desc)
+pg_corr = corrP(pg_for_corr,parallel = TRUE, n.cores = 4, p.value = 0.05)
+corrplot::corrplot(pg_corr)
+corrgram::corrgram(pg_corr)
+```
+0.4 corr between race and ethnicity -- nothing surprising and nothing to greatly worry about.
+
+##### Personal-level assessment -   
+Greenness <- SES  
+Greenness is dependent on SES variables  
+For now, we have chosen parcel to represent greenness  
+
+```{r echo=FALSE}
+# PG = Personal Greenness with Interactions
+
+pgi.model <- glm(Parcel_ndvi_Mean ~(inc.desc+edu.desc+age+gend.desc+race.desc)^2, 
+                  data = pg_for_lm)
+summary(pgi.model)
+```
+We see that interactions between low income, education and race(white) are significant
+  
+  \
+```{r}
+
+```
+  
+
+##### Personal greenness without interactions
+```{r echo=FALSE}
+pg.model <- glm(Parcel_ndvi_Mean ~inc.desc+edu.desc+age+gend.desc+race.desc, 
+                  data = pg_for_lm)
+summary(pg.model)
+```
+Low income continues to be highly (negatively) significant.  
+  
+##### Personal greenness stratified by gender
+```{r echo=FALSE}
+pgim.model <- glm(Parcel_ndvi_Mean ~(inc.desc+edu.desc+age+race.desc)^2, 
+                  data = pg_for_lm, 
+                  subset= gend.desc=="Male")
+summary(pgim.model)
+pgif.model <- glm(Parcel_ndvi_Mean ~(inc.desc+edu.desc+age+race.desc)^2, 
+                      data = pg_for_lm, 
+                      subset= gend.desc=="Female")
+summary(pgif.model)
+
+pgm.model <- glm(Parcel_ndvi_Mean ~inc.desc+edu.desc+age+race.desc, 
+                  data = pg_for_lm, 
+                  subset= gend.desc=="Male")
+summary(pgm.model)
+pgf.model <- glm(Parcel_ndvi_Mean ~inc.desc+edu.desc+age+race.desc, 
+                      data = pg_for_lm, 
+                      subset= gend.desc=="Female")
+summary(pgf.model)
+```
+Income, education and race are all significant interaction variables, with income being the most important.      
+  
+##### Let's try including only a few interaction variables
+```{r echo=FALSE}
+pgii.model <- glm(Parcel_ndvi_Mean ~inc.desc+edu.desc+age+gend.desc+race.desc+
+                    inc.desc*edu.desc+inc.desc*race.desc+edu.desc*race.desc, 
+                  data = pg_for_lm)
+summary(pgii.model)
+```
+  
+  
+  
+##### Personal-level assessment -   
+SES <- Greenness+SES  
+Income or education is dependent on greenness and other SES variables
+
+```{r echo=FALSE, message=FALSE}
+# Income AND greenness - multivariate 
+pgmult.model <- glm(cbind(inc.desc,edu.desc) ~Parcel_ndvi_Mean+age+
+                               race.desc+gend.desc+
+                               NEAR_DIST_MajorRoads, 
+                  data = pg_for_lm, family=binomial())
+# Stepwise regression model
+step.model <- stepAIC(pgmult.model, direction = "both", trace = FALSE)
+bootstep.model <- boot.stepAIC(pgmult.model, pg_for_lm, B = 100, alpha = 0.05, 
+                               direction = "both", k = 2, verbose = FALSE)
+summary(pgmult.model)
+summary(step.model) 
+summary(bootstep.model)
+bootstep.model
+
+anova(pgmult.model, test="Chisq")
+# McFadden's pseudo-R2
+# pR2(pgmult.model)
+car::vif(pgmult.model) 
+
+```
+NO variables found to be significant. Best model null model ..?  
+
+
+```{r echo=FALSE, eval=FALSE}
+pgmult1.model <- glm(cbind(inc,edu) ~Parcel_ndvi_Mean+age+
+                               race+gend+
+                               NEAR_DIST_MajorRoads, 
+                  data = pg_for_lm, family=binomial())
+```
+Throws error  
+
+##### Just one SES dependent var
+
+```{r echo=FALSE}
+pgsesi.model <- glm(inc.desc ~(Parcel_ndvi_Mean+age+
+                               race.desc+ethn.desc+gend.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial())
+summary(pgsesi.model)
+
+pgses.model <- glm(inc.desc ~Parcel_ndvi_Mean+age+
+                               race.desc+ethn.desc+gend.desc+
+                               NEAR_DIST_MajorRoads, 
+                  data = pg_for_lm, family=binomial())
+summary(pgses.model)
+
+```
+Nothing  
+  
+  
+  ##### Stratified samples
+
+```{r echo=FALSE}
+pgsesim.model <- glm(inc.desc ~(Parcel_ndvi_Mean+age+
+                               race.desc+ethn.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial(),
+                  subset= gend.desc=="Male")
+summary(pgsesim.model)
+
+pgsesiw.model <- glm(inc.desc ~(Parcel_ndvi_Mean+age+
+                               ethn.desc+gend.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial(),
+                  subset= race.desc=="White")
+summary(pgsesiw.model)
+
+```
+Age+Near_dist  
+  
+##### Checks for personal greenness model
+```{r echo=FALSE}
+car::vif(pgi.model) 
+alias(pgi.model) #Based on this, had to remove ethnicity
+# Exclude interactions or do something else?
+anova(pgi.model, test="Chisq")
+alias(pgi.model) #Based on this, had to remove ethnicity
+# McFadden's pseudo-R2
+pR2(pgi.model)
+```
+  
+  
+##### Local-level assessment -   
+SES <- Greenness+SES  
+Income or education is dependent on greenness and other SES variables  
+Greeness var changes to local level  
+
+```{r}
+
+lgi.model <- glm(inc.desc ~(Participant_100m_Mean_ndvi+age+
+                               race.desc+gend.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial())
+summary(lgi.model)
+
+lg.model <- glm(inc.desc ~Participant_100m_Mean_ndvi+age+
+                               race.desc+gend.desc+
+                               NEAR_DIST_MajorRoads, 
+                  data = pg_for_lm, family=binomial())
+summary(lg.model)
+
+lgim.model <- glm(inc.desc ~(Participant_100m_Mean_ndvi+age+
+                               race.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial(), 
+                  subset= gend.desc=="Male")
+summary(lgim.model)
+lgif.model <- glm(inc.desc ~(Participant_100m_Mean_ndvi+age+
+                               race.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial(), 
+                  subset= gend.desc=="Female")
+summary(lgif.model)
+
+lgiw.model <- glm(inc.desc ~(Participant_100m_Mean_ndvi+age+
+                               ethn.desc+gend.desc+
+                               NEAR_DIST_MajorRoads)^2, 
+                  data = pg_for_lm, family=binomial(), 
+                  subset= race.desc=="White")
+summary(lgiw.model)
+
+car::vif(lgim.model) 
+alias(lgim.model) #Based on this, had to remove ethnicity
+# Exclude interactions or do something else?
+anova(lgim.model, test="Chisq")
+alias(lgim.model) #Based on this, had to remove ethnicity
+# McFadden's pseudo-R2
+# pR2(lgim.model)
+
+
+
+```
+Age*Near_dist found for all stratified samples  
+
+
+```{r eval=FALSE}
+
+glmnet()
+
+```
+  
+
+##### Bootstrapping Visualization (some errors need to be resolved)
+```{r echo=FALSE, eval=FALSE}
+###############################################################
+## Visualization
+fit.boot <- bootstep.model
+nBoot <- summary(fit.boot)[8,1]
+origModel <- paste(names(coef(fit.boot$OrigModel)), collapse = " + ")
+stepModel <- paste(names(coef(fit.boot$OrigStepAIC)), collapse = " + ")
+# Names of covariates
+covariates <- rownames(fit.boot$Covariates)
+nCovariates <- length(covariates)
+# Matrix of number of times each covariate was picked
+coef.pick <- fit.boot$Covariates
+# Matrix for the consistency of sign on each covariate
+coef.sign <- fit.boot$Sign
+# Change names since many are factors
+rownames(coef.sign)[1] <- "exr.desc"
+rownames(coef.sign)[5] <- "inc.desc"
+rownames(coef.sign)[6] <- "saf3.desc"
+rownames(coef.sign)[7] <- "edu.desc"
+rownames(coef.sign)[22] <- "inc.desc"
+rownames(coef.sign)[23] <- "inc.desc"
+
+
+coef.sign <- coef.sign[match(rownames(coef.pick), rownames(coef.sign)),]
+# Matrix for statistical significance
+coef.stat <- fit.boot$Significance
+# Change name for "chas" since it is a factor
+
+rownames(coef.stat)[16] <- "inc.desc"
+rownames(coef.stat)[17] <- "obese.desc"
+rownames(coef.stat)[21] <- "race.desc"
+rownames(coef.stat)[22] <- "inc.desc"
+rownames(coef.stat)[23] <- "inc.desc"
+rownames(coef.stat)[24] <- "saf1.desc"
+rownames(coef.stat)[25] <- "medu.desc"
+rownames(coef.stat)[26] <- "edu.desc"
+
+
+coef.stat <- coef.stat[match(rownames(coef.pick), rownames(coef.stat)),]
+# Make into long form for charting later
+coef.stat.long <- data.frame()
+for(i in 1:length(coef.stat)){
+  n <- round(coef.stat[i],0)
+  vec <- seq(0, n, by = 2)
+  mat <- data.frame(rep(names(coef.stat)[i], length(vec)), vec, paste("% Sig", n))
+  names(mat) <- c("variable", "sig", "text")
+  
+  # We'll use mode = "line". NA helps separate line segments
+  coef.stat.long <- rbind(coef.stat.long, mat, c(NA, NA))
+}
+# Convert to dataframes
+coef.pick <- as.data.frame(coef.pick)
+coef.stat <- as.data.frame(coef.stat)
+coef.sign <- as.data.frame(coef.sign)
+names(coef.pick) <- "pick"
+names(coef.sign) <- c("pos", "neg")
+names(coef.stat) <- "stat"
+
+```
+
+  
+#####  PG = Personal Greenness with Additive
+```{r}
+# e
+
+pga.model <- glm(Parcel_ndvi_Mean ~(inc.desc+edu.desc+bs(age)+gend.desc+race.desc)^2, 
+                  data = pg_for_lm)
+summary(pga.model)
+#effect_plot(pga.model, pred=inc.desc, interval = TRUE, plot.points = TRUE)
+
+car::vif(pga.model) 
+alias(pga.model) #Based on this, had to remove ethnicity
+# Exclude interactions or do something else?
+anova(pga.model, test="Chisq")
+alias(pga.model) #Based on this, had to remove ethnicity
+# McFadden's pseudo-R2
+pR2(pga.model)
+```
+
+  
+    
+```{r}
+reg=earth(Parcel_ndvi_Mean ~(inc.desc+edu.desc+age+gend.desc+race.desc)^2,data=pg_for_lm)
+summary(reg)
+```
+##### Local greenness with interaction
+```{r}
+pgi.model <- glm(Participant_100m_Mean_ndvi ~(inc.desc+edu.desc+age+gend.desc+race.desc)^2, 
+                  data = pg_for_lm)
+summary(pgi.model)
+```
+
+
+##### Local greenness without interactions
+```{r echo=FALSE}
+pg.model <- glm(Participant_100m_Mean_ndvi ~inc.desc+edu.desc+age+gend.desc+race.desc, 
+                  data = pg_for_lm)
+summary(pg.model)
+```
+Low income continues to be highly (negatively) significant.  
+  
+##### Local greenness stratified by gender
+```{r echo=FALSE}
+pgim.model <- glm(Participant_100m_Mean_ndvi ~(inc.desc+edu.desc+age+race.desc)^2, 
+                  data = pg_for_lm, 
+                  subset= gend.desc=="Male")
+summary(pgim.model)
+pgif.model <- glm(Participant_100m_Mean_ndvi ~(inc.desc+edu.desc+age+race.desc)^2, 
+                      data = pg_for_lm, 
+                      subset= gend.desc=="Female")
+summary(pgif.model)
+
+pgm.model <- glm(Participant_100m_Mean_ndvi ~inc.desc+edu.desc+age+race.desc, 
+                  data = pg_for_lm, 
+                  subset= gend.desc=="Male")
+summary(pgm.model)
+pgf.model <- glm(Participant_100m_Mean_ndvi ~inc.desc+edu.desc+age+race.desc, 
+                      data = pg_for_lm, 
+                      subset= gend.desc=="Female")
+summary(pgf.model)
+```
+Income, education and race are all significant interaction variables, with income being the most important.      
+
