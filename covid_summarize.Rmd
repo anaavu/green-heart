@@ -1,0 +1,142 @@
+---
+title: "COVID Randomized Testing Data Summary"
+output: html_notebook
+Author: Anagha Uppal
+Date: April 2021
+Purpose: h
+Inputs: h
+Outputs: h
+To do: h
+---
+
+Tips:
+Execution shortcut: *Ctrl+Shift+Enter*. 
+Add a new chunk shortcut: *Ctrl+Alt+I*.
+
+
+Libraries and data import
+```{r}
+library(ggplot2)
+library(dplyr)
+library(gtsummary)
+mydata <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/ProcessedData/metrodata/metrodata.csv")
+
+```
+
+
+```{r}
+mydata$FinalZipcode <- rowMeans(mydata[,72:73], na.rm=TRUE)
+mydata <- mydata %>%
+  mutate(Sex = as.factor(if_else(SEX == 1, 'Male', 
+                  if_else(SEX == 2, 'Female', 
+                    if_else(SEX==3 | SEX==6, 'Other', NULL))))) %>%
+  mutate(Race = as.factor(if_else(RACE == 1 | RACE == 4, 'Native American/Pacific Islander', 
+                        if_else(RACE == 2, 'Asian', 
+                            if_else(RACE==3, 'Black',
+                                if_else(RACE==5, 'White', 
+                                    if_else(RACE == 6 | RACE == 7, 'Other',NULL))))))) %>%
+  mutate(Ethnicity = as.factor(if_else(ETHN == 1, 'Yes', 
+                                        if_else(ETHN == 2, 'No', NULL)))) %>%
+  mutate(Workoutsidehome = as.factor(if_else(WRKHM == 1, 'Yes', 
+                                    if_else(WRKHM == 0, 'No', NULL)))) %>%
+  mutate(Pregnant = as.factor(if_else(PREG == 1, 'Yes', 
+                                        if_else(PREG == 2, 'No', NULL)))) %>%
+  mutate(ROUNDTYPE = as.factor(if_else(ROUNDNAME == "r1vol" | 
+    ROUNDNAME == "r2vol" | ROUNDNAME == "r3vol", 'Volunteer', "Stratified")))
+  
+```
+
+Count NAs in each column
+```{r}
+na_count <- data.frame(sapply(mydata, 
+                              function(y) sum(is.na(y))))
+na_count$name<-rownames(na_count)
+
+```
+
+Set up gtsummary
+```{r}
+mydata1 <- mydata %>% select(X,ROUNDNAME,AGE_DOB, Sex, Race,Ethnicity,
+                             Workoutsidehome,Pregnant,STRESS)
+theme_gtsummary_compact()
+mydata1 %>% tbl_summary(by = ROUNDNAME,
+                       statistic = list(all_continuous() ~ "{mean} ({sd})",
+                                        all_categorical() ~ "{n} / {N} ({p}%)"),
+                       digits = all_continuous() ~ 2,
+                       label = list(AGE_DOB ~ "Age", Ethnicity ~ "Hispanic/Latino?"),
+                       missing = "ifany", #can switch to ifany
+                       missing_text = "(Missing)") %>% 
+  modify_header(label ~ "**Variable**") %>%
+  # modify_footnote(everything() ~ "Abbreviations") %>%
+  modify_spanning_header(c("stat_1", "stat_2", "stat_3", "stat_4", "stat_5", "stat_6") ~ "**Round**") %>%
+  add_p(pvalue_fun = ~style_pvalue(.x, digits = 2)) %>% 
+  bold_labels() %>% add_overall() %>% bold_p()
+
+  
+```
+
+vol vs wes
+```{r}
+rounddata <- mydata %>% select(X,ROUNDTYPE,AGE_DOB, Sex, Race,Ethnicity,
+                             Workoutsidehome,Pregnant,STRESS)
+theme_gtsummary_compact()
+rounddata %>% tbl_summary(by = ROUNDTYPE,
+                       statistic = list(all_continuous() ~ "{mean} ({sd})",
+                                        all_categorical() ~ "{n} / {N} ({p}%)"),
+                       digits = all_continuous() ~ 2,
+                       label = list(AGE_DOB ~ "Age", Ethnicity ~ "Hispanic/Latino?"),
+                       missing = "ifany", #can switch to ifany
+                       missing_text = "(Missing)") %>% 
+  modify_header(label ~ "**Variable**") %>%
+  # modify_footnote(everything() ~ "Abbreviations") %>%
+  modify_spanning_header(c("stat_1", "stat_2") ~ "**Category**") %>%
+  add_p(pvalue_fun = ~style_pvalue(.x, digits = 2)) %>% 
+  bold_labels() %>% add_overall() %>% bold_p()
+
+  
+```
+
+04/09 Meeting deciding to split up vol and wes and compare separately
+```{r}
+vol <- mydata %>% filter(ROUNDNAME == "r1vol" | ROUNDNAME == "r2vol" | ROUNDNAME == "r3vol")
+wes <- mydata %>% filter(ROUNDNAME == "r1wes" | ROUNDNAME == "r2wes" | ROUNDNAME == "r3wes")
+```
+
+```{r}
+voldata1 <- vol %>% select(X,ROUNDNAME,AGE_DOB, Sex, Race,Ethnicity,
+                             Workoutsidehome,Pregnant,STRESS)
+theme_gtsummary_compact()
+voldata1 %>% tbl_summary(by = ROUNDNAME,
+                       statistic = list(all_continuous() ~ "{mean} ({sd})",
+                                        all_categorical() ~ "{n} / {N} ({p}%)"),
+                       digits = all_continuous() ~ 2,
+                       label = list(AGE_DOB ~ "Age", Ethnicity ~ "Hispanic/Latino?"),
+                       missing = "ifany", #can switch to ifany
+                       missing_text = "(Missing)") %>% 
+  modify_header(label ~ "**Variable**") %>%
+  # modify_footnote(everything() ~ "Abbreviations") %>%
+  modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Round**") %>%
+  add_p(pvalue_fun = ~style_pvalue(.x, digits = 2)) %>% 
+  bold_labels() %>% add_overall() %>% bold_p()
+
+```
+
+
+```{r}
+wesdata1 <- wes %>% select(X,ROUNDNAME,AGE_DOB, Sex, Race,Ethnicity,
+                             Workoutsidehome,Pregnant,STRESS)
+theme_gtsummary_compact()
+wesdata1 %>% tbl_summary(by = ROUNDNAME,
+                       statistic = list(all_continuous() ~ "{mean} ({sd})",
+                                        all_categorical() ~ "{n} / {N} ({p}%)"),
+                       digits = all_continuous() ~ 2,
+                       label = list(AGE_DOB ~ "Age", Ethnicity ~ "Hispanic/Latino?"),
+                       missing = "ifany", #can switch to ifany
+                       missing_text = "(Missing)") %>% 
+  modify_header(label ~ "**Variable**") %>%
+  # modify_footnote(everything() ~ "Abbreviations") %>%
+  modify_spanning_header(c("stat_1", "stat_2", "stat_3") ~ "**Round**") %>%
+  add_p(pvalue_fun = ~style_pvalue(.x, digits = 2)) %>% 
+  bold_labels() %>% add_overall() %>% bold_p()
+
+```

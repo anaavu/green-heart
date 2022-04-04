@@ -1,0 +1,430 @@
+---
+title: "COVID Metro Testing Data Summary"
+output: html_notebook
+Author: Anagha Uppal
+Date: April 2021
+Purpose: Join all geocoded data to original file and do some checks
+Inputs: h
+Outputs: h
+To do: h
+---
+
+Tips:
+Execution shortcut: *Ctrl+Shift+Enter*. 
+Add a new chunk shortcut: *Ctrl+Alt+I*.
+
+Libraries and data
+```{r}
+library(dplyr)
+library(lubridate)
+library(tidyr)
+#devtools::install_github("moodymudskipper/safejoin")
+library(safejoin)
+tests_orig <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/RawData/COVID_Testing_20210408.csv")
+
+tests_orig_Yung <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/Original_COVID_Testing_Yung.csv")
+
+tests_orig2 <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/RawData/COVID_Testing_20210419.csv")
+
+tests_orig_unique <- distinct(tests_orig2, Patient.Local.ID, Address.One, Specimen.Coll.Dt, Birth.Dt, Result.Category, .keep_all = TRUE)
+
+tests_pos_geo <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/ProcessedData/CityData/PositiveGeocodes_CSV_JK.csv")
+
+tests_neg_geo2 <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/ProcessedData/CityData/NegativeGeocodes_CSV_MC.csv")
+
+# tests_neg_geo <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/Re-geocoding_Anagha.csv")
+
+tests_geo_v2 <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/Geocoded_April_19_Data.csv")
+tests_geo_v2 <- filter(tests_geo_v2, Status != "U")
+tests_geo_v2 <- distinct(tests_geo_v2, Patient.Local.ID,Address.One, Birth.Dt, .keep_all = TRUE)
+
+tests_geo_v2_p2 <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/geocode_p2.csv")
+tests_geo_v2_p2 <- filter(tests_geo_v2_p2, Status != "U")
+tests_geo_v2_p2 <- distinct(tests_geo_v2_p2, USER_Patient_Local_ID,USER_Address_One, USER_Birth_Dt, .keep_all = TRUE)
+tests_orig_unique$Age.Reported <- NULL
+tests_orig_unique$Age.Unit.Cd <- NULL
+tests_geo_v2$Age.Reported <- NULL
+tests_geo_v2$Age.Unit.Cd <- NULL
+tests_geo_v2_p2$USER_Age_Reported <- NULL
+tests_geo_v2_p2$USER_Age_Unit_Cd <- NULL
+tests_geo_v2$City <- tests_geo_v2$City.1
+tests_geo_v2$City.1 <- NULL
+tests_geo_v2$City.2 <- NULL
+tests_geo_v2$Country <- NULL
+tests_geo_v2$Country.1 <- NULL
+tests_geo_v2_p2$Country <- NULL
+tests_geo_v2$ObjectID.. <- NULL
+tests_geo_v2$Shape.. <- NULL
+tests_geo_v2_p2$ï..OID_ <- NULL
+tests_geo_v2$Neighborhood <- NULL
+tests_geo_v2$Neighborhood.1 <- NULL
+tests_geo_v2$X.1 <- NULL
+
+outsideJC <- read.csv("C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/outsideJC.csv")
+outsideJC <- filter(outsideJC, Status != "U")
+outsideJC <- distinct(outsideJC, USER_Patient_Local_ID,USER_Address_One, USER_Birth_Dt, .keep_all = TRUE)
+# July 2020 to Jan 2021
+```
+
+
+
+```{r}
+tests_orig_unique$date <- as.Date(mdy_hm(tests_orig_unique$Specimen.Coll.Dt))
+tests_geo_v2$date <- as.Date(mdy_hm(tests_geo_v2$Specimen.Coll.Dt))
+
+```
+
+
+```{r}
+#Difference between my original and Yung
+unjoined_orig1 <- anti_join(tests_orig, tests_orig_Yung, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+unjoined_orig1$date <- as.Date(mdy_hm(unjoined_orig1$Lab.Report.Dt))
+unjoined_orig1 <- filter(unjoined_orig1, date <= as.Date("2021-01-07"))
+
+unjoined_orig2 <- anti_join(tests_orig_Yung, tests_orig, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+
+#Difference between my original and new original
+unjoined_orig3 <- anti_join(tests_orig, tests_orig2, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+unjoined_orig3$date <- as.Date(mdy_hm(unjoined_orig3$Lab.Report.Dt))
+unjoined_orig3 <- filter(unjoined_orig3, date <= as.Date("2021-01-07"))
+unjoined_orig4 <- anti_join(tests_orig2, tests_orig, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+unjoined_orig4$date <- as.Date(mdy_hm(unjoined_orig4$Lab.Report.Dt))
+unjoined_orig4 <- filter(unjoined_orig4, date <= as.Date("2021-01-07"))
+
+#Difference between Yung and new original
+unjoined_orig5 <- anti_join(tests_orig_Yung, tests_orig2, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+unjoined_orig5$date <- as.Date(mdy_hm(unjoined_orig5$Lab.Report.Dt))
+unjoined_orig5 <- filter(unjoined_orig5, date <= as.Date("2021-01-07"))
+
+unjoined_orig6 <- anti_join(tests_orig2, tests_orig_Yung, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+unjoined_orig6$date <- as.Date(mdy_hm(unjoined_orig6$Lab.Report.Dt))
+unjoined_orig6 <- filter(unjoined_orig6, date <= as.Date("2021-01-07"))
+
+```
+
+
+
+```{r}
+
+
+tests_geo <- safe_left_join(tests_orig_unique, tests_geo_v2, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID", 
+                             "Address.One" = "Address.One"),
+                      check = "", conflict = coalesce)
+tests_geo <- safe_left_join(tests_geo, tests_geo_v2_p2, 
+                      by = c("Patient.Local.ID" = "USER_Patient_Local_ID", 
+                             "Address.One" = "USER_Address_One"),
+                      check = "", conflict = coalesce)
+
+tests_geo <- tests_geo[, -c(77:108)]
+
+tests_geo <- safe_left_join(tests_geo, tests_pos_geo, 
+                      by = c("Patient.Local.ID" = "USER_Patient_ID"),
+                      check = "", conflict = coalesce)
+
+tests_geo <- tests_geo[, -c(77:109)]
+
+# tests_geo <- safe_left_join(tests_geo, tests_neg_geo2, 
+#                       by = c("Patient.Local.ID" = "USER_Patient_Local_ID"),
+#                       conflict = coalesce)
+# tests_geo <- tests_geo[, -c(77:124)]
+
+sum(!is.na(tests_geo$X))
+imm_usable <- tests_geo %>% filter(!is.na(X))
+write.csv(imm_usable, "C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/usable_records.csv")
+unique_patients <-distinct(imm_usable, Patient.Local.ID)
+
+
+tests_geo$NeedZipOnly <- NULL
+tests_geo <- tests_geo %>%
+  mutate(NeedZipOnly = if_else(tests_geo$Address.One == "" & is.na(X) & tests_geo$Zip.Code != "", "Yes", NULL)) %>%
+  mutate(NoData = if_else(tests_geo$Address.One == "" & is.na(X) & tests_geo$Zip.Code == "", "Yes", NULL))
+sum(tests_geo$NoData == "Yes", na.rm = TRUE)
+
+sum(tests_geo$Zip.Code == "" | is.null(tests_geo$Zip.Code), na.rm = TRUE)
+
+unjoined <- tests_geo %>%
+  filter(is.na(X)) %>%
+  filter(NeedZipOnly == "Yes")
+
+trial <- tests_geo %>%
+  filter(is.na(X)) %>%
+  filter(Address.One != "") %>%
+  filter(Zip.Code != "")
+
+possibilities <- trial <- tests_geo %>%
+  filter(!is.na(X))
+
+trial2 <- inner_join(trial, outsideJC, by = c("Patient.Local.ID" = "USER_Patient_Local_ID", "Address.One" = "USER_Address_One"))
+ 
+values <- tests_geo %>% filter(NoData=="Yes") 
+
+unique_patients <-distinct(tests_geo, Patient.Local.ID)
+for (i in 1:length(values)){
+  id = values$Patient.Local.ID[i]
+  maintable = subset(tests_geo, tests_geo[,"Patient.Local.ID"] == id)
+  print(maintable)
+  for (j in 1:nrow(maintable)){
+    print(paste("j = ", j))
+    print(maintable$X[j])
+    if (!(is.na(maintable$X[j]))){
+      print("Reached")
+      values[i, "Address.One"] <- maintable[j, "Address.One"]
+      values[i, "X"] <- maintable[j, "X"]
+      values[i, "Y"] <- maintable[j, "Y"]
+      values[i, "City"] <- maintable[j, "City"]
+      values[i, "Zip.Code"] <- maintable[j, "Zip.Code"]
+      print(maintable[j, "Address.One"])
+      print(values[i, "Address.One"])
+      break
+    }
+  }
+}
+sum(!is.na(values$X))
+values <- values %>% filter(!(is.na(values$X)))
+tests_geo <- safe_left_join(tests_geo, values, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"),
+                      check = "", conflict = coalesce)
+
+tests_geo$NeedZipOnly <- NULL
+tests_geo$NoData <- NULL
+tests_geo <- tests_geo %>%
+  mutate(NeedZipOnly = if_else(tests_geo$Address.One == "" & is.na(X) & tests_geo$Zip.Code != "" & tests_geo$Zip.Code != "?" & tests_geo$Zip.Code != "EP015" & tests_geo$Zip.Code != "183 c", "Yes", NULL)) %>%
+  mutate(NoData = if_else(tests_geo$Address.One == "" & is.na(X) & tests_geo$Zip.Code == "", "Yes", NULL))
+sum(tests_geo$NoData == "Yes", na.rm = TRUE)
+
+remaining <- tests_geo %>% filter(NoData=="Yes") 
+sum(!is.na(tests_geo$X))
+ziponly <- tests_geo %>% filter(NeedZipOnly=="Yes") 
+write.csv(ziponly, "C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/ziponly_input.csv")
+
+```
+
+
+```{r}
+
+yesjoined <- inner_join(tests_orig_unique, tests_geo_v2, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID", 
+                             "Address.One" = "Address.One"))
+unjoined <- anti_join(tests_orig_unique, tests_geo_v2, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID",
+                             "Address.One" = "Address.One"))
+unjoined1 <- anti_join(tests_geo_v2, tests_orig_unique, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID",
+                             "Address.One" = "Address.One"))
+unjoined <- filter(unjoined, Address.One != "" & !(is.na(Address.One)))
+unjoined$State <- "Kentucky"
+write.csv(unjoined, "C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/RawData/to_be_geocoded.csv")
+
+```
+
+
+```{r}
+all_tests <- rbind(tests_orig_unique, unjoined_orig5)
+```
+
+
+I'm thinking don't want to join on Patient ID because patient could take a test multiple times. Will join on patient and collection date. 
+
+Collection date records have the timestamp missing (converted to 00:00) 
+from the geocoded dataset. Removing all timestamps to make consistent
+
+
+function to pick first string out of a string split-to use to split timestamp into date and time
+```{r}
+date <- function(my.string){
+  unlist(strsplit(my.string, " "))[1]
+}
+```
+
+Removing all timestamps
+```{r}
+tests_orig_unique$Specimen.Coll.Date <- sapply(tests_orig_unique$Specimen.Coll.Dt, date)
+
+tests_pos_geo$USER_Specimen_Coll_Date <- sapply(tests_pos_geo$USER_Specimen_Coll_Dt, date)
+
+tests_neg_geo2$USER_Specimen_Coll_Date <- sapply(tests_neg_geo2$USER_Specimen_Coll_Dt, date)
+
+
+```
+
+Join positives geocoded to original test info
+```{r}
+# covid_city_tests <- left_join(covid_city_tests_orig_unique, covid_city_tests_neg_geo2, c("Patient.Local.ID" = "Patient.Local.ID", 
+#                 "Specimen.Coll.Date" = "USER_Specimen_Coll_Date"))
+
+# write.csv(covid_city_tests, "C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/ProcessedData/CityData/TestDatawithGeo_AU_20210408.csv")
+
+tests_pos <- left_join(all_tests, tests_pos_geo, c("Patient.Local.ID" = "USER_Patient_ID"))
+tests_pos <- tests_pos %>%
+  mutate(City = if_else(!(is.na(City.x)), City.x, City.y))
+tests_pos_neg$City.x <- NULL
+tests_pos_neg$City.y <- NULL
+
+tests_neg <- left_join(all_tests, tests_neg_geo, c("Patient.Local.ID" = "Patient.Local.ID"))
+
+
+```
+
+
+```{r}
+sum(!is.na(tests_pos$X)) 
+sum(!is.na(tests_neg$X)) 
+
+sum(!is.na(tests_geo$X)) 
+
+
+```
+
+35757 -lost 2.5K
+
+Let's check which data were lost in the joining
+```{r}
+tests_joined_pos <- inner_join(all_tests,
+                      tests_pos_geo,
+                      c("Patient.Local.ID" = "USER_Patient_ID"))
+unjoined_pos <- anti_join(tests_pos_geo, tests_joined_pos, 
+                      by = c("USER_Patient_ID" = "Patient.Local.ID"))
+
+
+tests_joined_neg <- inner_join(all_tests,
+                      tests_neg_geo,
+                      c("Patient.Local.ID" = "Patient.Local.ID"))
+unjoined_neg <- anti_join(tests_neg_geo, tests_joined_neg, 
+                      by = c("Patient.Local.ID" = "Patient.Local.ID"))
+
+```
+Lost 3.5
+Lost 820...???
+
+OK, it turns out geocoders removed duplicates on the basis of patient ID
+The problem is patient could have reported multiple address.
+So I need to rejoin by patient + address + birth date and then recheck missing
+
+```{r}
+tests_pos_neg <- left_join(tests_pos, tests_neg_geo, c("Patient.Local.ID" = "Patient.Local.ID", "Jurisdictionname" = "Jurisdictionname"))
+sum(!is.na(tests_pos_neg$X.y)) 
+
+```
+
+```{r}
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(X = if_else(!(is.na(X.x)), X.x, X.y))
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(Y = if_else(!(is.na(Y.x)), Y.x, Y.y))
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(Address.One = if_else(!(is.na(Address.One.x)), Address.One.x, Address.One.y))
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(Address.Two = if_else(!(is.na(Address.Two.x)), Address.Two.x, Address.Two.y))
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(City = if_else(!(is.na(City.x)), City.x, City.y))
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(Zip.Code = if_else(!(is.na(Zip.Code.x)), Zip.Code.x, Zip.Code.y))
+tests_pos_neg <- tests_pos_neg %>%
+  mutate(Lab.Added.Dt = if_else(!(is.na(Lab.Added.Dt.x)), Lab.Added.Dt.x, Lab.Added.Dt.y))
+# tests_pos_neg <- tests_pos_neg %>%
+#   unite(X, X.x, X.y, remove = FALSE, na.rm=TRUE)
+#sum(!is.na(tests_pos_neg$X)) 
+sum(!(is.na(tests_pos_neg$X)))
+tests_pos_neg$X.x <- NULL
+tests_pos_neg$X.y <- NULL
+tests_pos_neg$Y.x <- NULL
+tests_pos_neg$Y.y <- NULL
+tests_pos_neg$Address.One.x <- NULL
+tests_pos_neg$Address.One.y <- NULL
+tests_pos_neg$Address.Two.x <- NULL
+tests_pos_neg$Address.Two.y <- NULL
+tests_pos_neg$City.x <- NULL
+tests_pos_neg$City.y <- NULL
+tests_pos_neg$Zip.Code.x <- NULL
+tests_pos_neg$Zip.Code.y <- NULL
+tests_pos_neg$Lab.Added.Dt.x <- NULL
+tests_pos_neg$Lab.Added.Dt.y <- NULL
+
+```
+
+
+
+```{r}
+tests_pos_neg2 <- left_join(tests_pos_neg, tests_neg_geo2, c("Patient.Local.ID" = "USER_Patient_Local_ID"))
+sum(!is.na(tests_pos_neg2$X))
+```
+```{r}
+zipmean <- tests_pos_neg2 %>%
+  group_by(Zip) %>%
+  summarise(mean_july_ndvi = mean(July_2016,na.rm = TRUE))
+
+
+```
+
+
+```{python}
+import reticulate
+import pandas
+tests_orig_unique.combine_first(tests_geo_v2)
+```
+
+
+```{r}
+all_patients <- all_tests %>%
+  dplyr::group_by(Patient.Local.ID) %>%
+  summarise(countpos = sum(Result.Category == "Positive"),
+            zipcode = max(Zip.Code)) %>%
+  mutate(ever_positive = if_else(countpos >= 1, 'Yes', 'No'))
+  
+
+all_zips <- all_patients %>%
+  group_by(zipcode) %>%
+  summarize(numtested = n(),
+            positive_cases = sum(ever_positive == "Yes"))
+```
+
+
+Fun checks
+```{r}
+sort(table(tests_orig$Patient.Local.ID), decreasing=T)
+sort(table(tests_orig_unique$Patient.Local.ID), decreasing=T)
+hist(as.numeric(all_tests$Patient.Local.ID))
+guy_with_most_tests <- filter(tests_orig_unique, Patient.Local.ID=="PSN12345855KY01")
+table(guy_with_most_tests$Patient.Local.ID)
+guy_with_2most_tests <- filter(tests_orig_unique, Patient.Local.ID=="PSN20114316KY01")
+ 
+
+households_patients <- tests_orig_unique %>% group_by(Address.One, Patient.Local.ID) %>% count()
+households <- tests_orig_unique %>% group_by(Address.One) %>% count()
+mean(households$n) #2.7
+mean(households_patients$n) # 1.7
+households_p2 <- households_patients %>% group_by(Address.One) %>% count()
+mean(households_p2$n) #1.6
+
+patients <- tests_orig_unique %>% group_by(Patient.Local.ID) %>% count()
+mean(patients$n) #2.2
+
+na_count <- data.frame(sapply(tests_orig_unique, 
+                  function(y) sum(is.na(y))))
+na_count$name<-rownames(na_count)
+```
+
+```{r}
+tests_orig2$UniqueID <- 1:nrow(tests_orig2)
+write.csv(tests_orig2, "C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/RawData/COVID_Testing_20210419.csv")
+```
+
+```{r}
+tests1 <- tests_orig %>%
+  dplyr::group_by(Patient.Local.ID) %>%
+  summarise(countpos = sum(Result.Category == "Positive"),
+            zipcode = max(Zip.Code)) %>%
+  mutate(ever_positive = if_else(countpos >= 1, 1, 0))
+sum(tests1$ever_positive==1)
+
+write.csv(disjoint, "C:/Users/a0uppa01/University of Louisville/Envirome Institute members_group - General/GIS/COVID/GeocodingItemizedSteps/CSV/manuals.csv")
+
+```
+
